@@ -97,6 +97,35 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
     }
   };
 
+  // Delete Group state
+  const [deleteLoading, setDeleteLoading] = useState(false);
+
+  const handleDeleteGroup = async () => {
+    const confirmed = window.confirm(
+      "Are you sure you want to delete this group? This will permanently erase the group ledger and transaction history. This action cannot be undone."
+    );
+    if (!confirmed) return;
+
+    setDeleteLoading(true);
+    try {
+      const response = await fetch(`/api/groups/${groupId}`, {
+        method: "DELETE",
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || "Failed to delete group.");
+      }
+
+      router.push("/");
+    } catch (err: any) {
+      console.error("RAW SYSTEM ERROR:", err);
+      alert(err.message || "Failed to delete group. Please try again.");
+    } finally {
+      setDeleteLoading(false);
+    }
+  };
+
   // Fetch group details
   const fetchGroup = async () => {
     try {
@@ -344,14 +373,24 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
             </div>
           </div>
 
-          <Button
-            onClick={() => router.push(`/groups/${groupId}/settle`)}
-            className="bg-white hover:bg-zinc-200 text-zinc-950 font-semibold h-9 px-4 rounded-lg flex items-center gap-1.5 self-start sm:self-auto shadow-md"
-          >
-            <Layers className="size-4" />
-            <span>Visualize Settlement</span>
-            <ChevronRight className="size-4" />
-          </Button>
+          <div className="flex flex-wrap gap-2.5 self-start sm:self-auto">
+            <Button
+              onClick={handleDeleteGroup}
+              variant="destructive"
+              className="h-9 px-4 rounded-lg flex items-center gap-1.5 shadow-md text-xs font-semibold"
+              disabled={deleteLoading}
+            >
+              {deleteLoading ? "Deleting..." : "Delete Group"}
+            </Button>
+            <Button
+              onClick={() => router.push(`/groups/${groupId}/settle`)}
+              className="bg-white hover:bg-zinc-200 text-zinc-950 font-semibold h-9 px-4 rounded-lg flex items-center gap-1.5 shadow-md"
+            >
+              <Layers className="size-4" />
+              <span>Visualize Settlement</span>
+              <ChevronRight className="size-4" />
+            </Button>
+          </div>
         </div>
 
         {/* Dashboard Grid */}
