@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Trash2, Users, ArrowRight, Sparkles, DollarSign, Activity } from "lucide-react";
+import { Plus, Trash2, Users, ArrowRight, Sparkles, Activity } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
@@ -97,9 +97,9 @@ export default function Home() {
       }
 
       // Redirect to groups/[id]
-      router.push(`/groups/${data.id}`);
+      router.push(`/groups/${data._id || data.id}`);
     } catch (err: any) {
-      console.error(err);
+      console.error("RAW SYSTEM ERROR:", err);
       setError(err.message || "Failed to create group. Please try again.");
     } finally {
       setLoading(false);

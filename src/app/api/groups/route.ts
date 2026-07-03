@@ -19,6 +19,7 @@ export async function POST(req: Request) {
     const group = await Group.create({ name, members, transactions: [] });
     return NextResponse.json(group, { status: 201 });
   } catch (error) {
+    console.error("RAW SYSTEM ERROR:", error);
     return NextResponse.json(
       { error: "Failed to create group" }, 
       { status: 500 }
