@@ -50,6 +50,53 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
   const [formLoading, setFormLoading] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
+  // Add Member state
+  const [isAddingMember, setIsAddingMember] = useState(false);
+  const [newMemberName, setNewMemberName] = useState("");
+  const [addMemberLoading, setAddMemberLoading] = useState(false);
+  const [addMemberError, setAddMemberError] = useState<string | null>(null);
+
+  const handleAddMember = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newMemberName.trim()) return;
+    setAddMemberLoading(true);
+    setAddMemberError(null);
+
+    try {
+      const response = await fetch(`/api/groups/${groupId}/members`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ name: newMemberName.trim() }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to add member.");
+      }
+
+      if (group) {
+        setGroup({
+          ...group,
+          members: data.members,
+        });
+        
+        // Auto select the new member in form split checkboxes
+        setSplitAmong([...splitAmong, newMemberName.trim()]);
+      }
+
+      setNewMemberName("");
+      setIsAddingMember(false);
+    } catch (err: any) {
+      console.error("RAW SYSTEM ERROR:", err);
+      setAddMemberError(err.message || "Failed to add member.");
+    } finally {
+      setAddMemberLoading(false);
+    }
+  };
+
   // Fetch group details
   const fetchGroup = async () => {
     try {
@@ -236,9 +283,64 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
                   {group.members.length} Members
                 </span>
               </div>
-              <p className="text-zinc-500 text-xs mt-1 md:text-sm">
-                Members: {group.members.join(", ")}
-              </p>
+              <div className="flex flex-col sm:flex-row sm:items-center gap-2.5 mt-1">
+                <p className="text-zinc-500 text-xs md:text-sm">
+                  Members: {group.members.join(", ")}
+                </p>
+                {group.members.length < 5 && !isAddingMember && (
+                  <button
+                    onClick={() => setIsAddingMember(true)}
+                    className="text-[10px] text-zinc-400 hover:text-white font-semibold underline underline-offset-2 transition-all text-left self-start sm:self-auto cursor-pointer"
+                  >
+                    + Add Member
+                  </button>
+                )}
+              </div>
+              
+              {isAddingMember && (
+                <form onSubmit={handleAddMember} className="flex items-center gap-2 mt-2 flex-wrap">
+                  <Input
+                    type="text"
+                    placeholder="New member name"
+                    value={newMemberName}
+                    onChange={(e) => {
+                      setNewMemberName(e.target.value);
+                      setAddMemberError(null);
+                    }}
+                    className="h-7 text-xs border-zinc-800 bg-zinc-900/60 focus:border-zinc-500 w-36 text-white placeholder-zinc-700 rounded-lg px-2.5"
+                    disabled={addMemberLoading}
+                    autoFocus
+                    required
+                  />
+                  <Button
+                    type="submit"
+                    size="xs"
+                    className="bg-white text-zinc-950 hover:bg-zinc-200 h-7 px-2.5 rounded-lg font-semibold"
+                    disabled={addMemberLoading}
+                  >
+                    {addMemberLoading ? "Adding..." : "Add"}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="xs"
+                    onClick={() => {
+                      setIsAddingMember(false);
+                      setNewMemberName("");
+                      setAddMemberError(null);
+                    }}
+                    className="text-zinc-500 hover:text-zinc-300 h-7 px-2 rounded-lg"
+                    disabled={addMemberLoading}
+                  >
+                    Cancel
+                  </Button>
+                  {addMemberError && (
+                    <span className="text-[10px] text-red-400 font-semibold bg-red-950/10 border border-red-900/20 px-2 py-0.5 rounded-md">
+                      {addMemberError}
+                    </span>
+                  )}
+                </form>
+              )}
             </div>
           </div>
 

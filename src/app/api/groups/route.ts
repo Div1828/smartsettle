@@ -26,3 +26,18 @@ export async function POST(req: Request) {
     );
   }
 }
+
+export async function GET() {
+  try {
+    await dbConnect();
+    // Fetch all groups, sorted by createdAt descending
+    const groups = await Group.find({}).sort({ createdAt: -1 });
+    return NextResponse.json(groups, { status: 200 });
+  } catch (error) {
+    console.error("RAW SYSTEM ERROR:", error);
+    return NextResponse.json(
+      { error: "Failed to fetch groups" },
+      { status: 500 }
+    );
+  }
+}

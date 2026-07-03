@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Plus, Trash2, Users, ArrowRight, Sparkles, Activity } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -17,6 +17,29 @@ export default function Home() {
   // UX states
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Recent groups state
+  const [recentGroups, setRecentGroups] = useState<any[]>([]);
+  const [groupsLoading, setGroupsLoading] = useState(true);
+
+  const fetchRecentGroups = async () => {
+    try {
+      setGroupsLoading(true);
+      const response = await fetch("/api/groups");
+      const data = await response.json();
+      if (response.ok) {
+        setRecentGroups(data);
+      }
+    } catch (err) {
+      console.error("RAW SYSTEM ERROR:", err);
+    } finally {
+      setGroupsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchRecentGroups();
+  }, []);
 
   // Add a member input field (max 5)
   const addMemberField = () => {
@@ -295,6 +318,41 @@ export default function Home() {
               </form>
             </CardContent>
           </Card>
+
+          {/* Recent Groups Section */}
+          <div className="mt-8 space-y-4">
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
+              Recent Groups
+            </h3>
+            {groupsLoading ? (
+              <div className="flex justify-center items-center py-6">
+                <div className="size-5 border-2 border-zinc-500 border-t-transparent rounded-full animate-spin" />
+              </div>
+            ) : recentGroups.length === 0 ? (
+              <p className="text-xs text-zinc-600 italic">No groups created yet. Initialize one above!</p>
+            ) : (
+              <div className="grid grid-cols-1 gap-3 max-h-[220px] overflow-y-auto pr-1">
+                {recentGroups.map((g) => (
+                  <div 
+                    key={g._id} 
+                    onClick={() => router.push(`/groups/${g._id}`)}
+                    className="border border-zinc-800/85 bg-zinc-900/20 hover:bg-zinc-900/60 hover:border-zinc-700/60 transition-all rounded-xl p-4 flex justify-between items-center cursor-pointer group/item shadow-sm"
+                  >
+                    <div>
+                      <h4 className="font-bold text-zinc-200 text-sm group-hover/item:text-white transition-colors">{g.name}</h4>
+                      <p className="text-[10px] text-zinc-500 mt-1 flex items-center gap-2">
+                        <span>{g.members.length} Members</span>
+                        <span>&bull;</span>
+                        <span>{g.transactions ? g.transactions.length : 0} Expenses</span>
+                      </p>
+                    </div>
+                    <ArrowRight className="size-4 text-zinc-600 group-hover/item:text-white group-hover/item:translate-x-1 transition-all" />
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
         </div>
       </div>
 

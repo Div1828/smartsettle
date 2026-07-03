@@ -16,9 +16,10 @@ import {
   Info
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
+import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardAction } from "@/components/ui/card";
 import { calculateSettlements, Settlement } from "@/lib/calculator";
 import { ITransaction } from "@/models/Group";
+import GraphVisualizer from "@/components/GraphVisualizer";
 
 interface ClientTransaction extends ITransaction {
   _id?: string;
@@ -43,6 +44,7 @@ export default function SettlePage({ params }: { params: Promise<{ id: string }>
   const [settlements, setSettlements] = useState<Settlement[]>([]);
   const [netBalances, setNetBalances] = useState<{ [member: string]: number }>({});
   const [rawDebtsCount, setRawDebtsCount] = useState(0);
+  const [showOptimized, setShowOptimized] = useState(true);
 
   useEffect(() => {
     const fetchGroupAndCalculate = async () => {
@@ -260,14 +262,42 @@ export default function SettlePage({ params }: { params: Promise<{ id: string }>
           {/* Optimized Settlement Transfers */}
           <div className="md:col-span-7">
             <Card className="border-zinc-800 bg-zinc-900/40 shadow-xl shadow-black/40 backdrop-blur-md h-full">
-              <CardHeader className="border-b border-zinc-800/80 p-5">
-                <CardTitle className="text-base font-bold text-white flex items-center gap-2">
-                  <Sparkles className="size-4 text-zinc-400" />
-                  <span>Simplified Settlements</span>
-                </CardTitle>
-                <CardDescription className="text-zinc-500 text-xs">
-                  The mathematically optimal minimal payments to settle all debts.
-                </CardDescription>
+              <CardHeader className="border-b border-zinc-800/80 p-5 flex flex-row items-center justify-between gap-4">
+                <div className="flex flex-col gap-1">
+                  <CardTitle className="text-base font-bold text-white flex items-center gap-2">
+                    <Sparkles className="size-4 text-zinc-400" />
+                    <span>Visual Debt Flow</span>
+                  </CardTitle>
+                  <CardDescription className="text-zinc-500 text-xs">
+                    {showOptimized ? "Optimized minimal payments flow." : "Messy, unoptimized raw peer-to-peer debts."}
+                  </CardDescription>
+                </div>
+                <CardAction>
+                  <div className="flex bg-zinc-900 border border-zinc-800 p-0.5 rounded-lg text-xs">
+                    <button
+                      type="button"
+                      onClick={() => setShowOptimized(false)}
+                      className={`px-3 py-1 rounded-md transition-all font-semibold select-none cursor-pointer ${
+                        !showOptimized 
+                          ? "bg-zinc-800 text-rose-400 shadow-inner" 
+                          : "text-zinc-400 hover:text-zinc-200"
+                      }`}
+                    >
+                      Raw Chaos
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowOptimized(true)}
+                      className={`px-3 py-1 rounded-md transition-all font-semibold select-none cursor-pointer ${
+                        showOptimized 
+                          ? "bg-white text-zinc-950 shadow-sm" 
+                          : "text-zinc-400 hover:text-zinc-200"
+                      }`}
+                    >
+                      Optimized
+                    </button>
+                  </div>
+                </CardAction>
               </CardHeader>
 
               <CardContent className="p-5">
@@ -283,39 +313,28 @@ export default function SettlePage({ params }: { params: Promise<{ id: string }>
                   </div>
                 ) : (
                   <div className="space-y-4">
-                    {settlements.map((settlement, idx) => (
-                      <div 
-                        key={idx} 
-                        className="p-4 rounded-xl border border-zinc-850 bg-zinc-900/20 flex justify-between items-center hover:border-zinc-700/60 transition-all shadow-inner relative group"
-                      >
-                        {/* Debtor */}
-                        <div className="flex items-center gap-2">
-                          <div className="size-7 rounded-lg bg-rose-950/20 border border-rose-900/30 text-rose-400 font-semibold text-xs flex items-center justify-center shrink-0">
-                            {settlement.from[0].toUpperCase()}
-                          </div>
-                          <span className="text-sm font-bold text-zinc-200">{settlement.from}</span>
-                        </div>
-
-                        {/* Directed Arrow Flow */}
-                        <div className="flex flex-col items-center gap-1.5 flex-1 px-4 relative">
-                          <span className="text-xs font-mono font-bold text-white bg-zinc-900 px-3 py-1 rounded-md border border-zinc-800 shadow-sm z-10">
-                            ₹{settlement.amount.toFixed(2)}
-                          </span>
-                          <div className="w-full border-t-2 border-dashed border-zinc-800 absolute top-1/2 -translate-y-1/2 left-0 z-0 flex justify-center">
-                            <ArrowRight className="size-4 text-zinc-750 group-hover:translate-x-1.5 transition-transform" />
-                          </div>
-                        </div>
-
-                        {/* Creditor */}
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm font-bold text-zinc-200">{settlement.to}</span>
-                          <div className="size-7 rounded-lg bg-emerald-950/20 border border-emerald-900/30 text-emerald-400 font-semibold text-xs flex items-center justify-center shrink-0">
-                            {settlement.to[0].toUpperCase()}
-                          </div>
-                        </div>
-
-                      </div>
-                    ))}
+                    <GraphVisualizer
+                      members={group.members}
+                      transactions={group.transactions}
+                      settlements={settlements}
+                      netBalances={netBalances}
+                      showOptimized={showOptimized}
+                    />
+                    
+                    {/* Compact visual legend */}
+                    <div className="flex justify-between items-center text-[10px] text-zinc-500 border-t border-zinc-900 pt-3 px-1">
+                      <span className="flex items-center gap-1.5">
+                        <span className="size-2 rounded-full bg-rose-500" />
+                        <span>Debtor (Owes money)</span>
+                      </span>
+                      <span className="flex items-center gap-1.5">
+                        <span className="size-2 rounded-full bg-emerald-500" />
+                        <span>Creditor (Owed money)</span>
+                      </span>
+                      <span className="text-zinc-600 font-mono">
+                        Double-click / Drag nodes to organize
+                      </span>
+                    </div>
                   </div>
                 )}
               </CardContent>
