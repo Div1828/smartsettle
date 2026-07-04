@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo, useEffect } from "react";
+import React, { useMemo, useEffect, useRef } from "react";
 import { 
   ReactFlow, 
   Background, 
@@ -22,6 +22,10 @@ interface GraphVisualizerProps {
   settlements: Settlement[];
   netBalances: { [member: string]: number };
   showOptimized: boolean;
+  todaySpent?: { [member: string]: number };
+  actualSpentToday?: { [member: string]: number };
+  isFullscreen?: boolean;
+  nodeScale?: number;
 }
 
 export default function GraphVisualizer({
@@ -30,8 +34,14 @@ export default function GraphVisualizer({
   settlements,
   netBalances,
   showOptimized,
+  todaySpent = {},
+  actualSpentToday = {},
+  isFullscreen = false,
+  nodeScale = 1,
 }: GraphVisualizerProps) {
   
+  const reactFlowInstance = useRef<ReactFlowInstance | null>(null);
+
   // 1. Calculate Initial Nodes (spaced in a circle)
   const initialNodes = useMemo<Node[]>(() => {
     const cx = 250; // Center X
@@ -41,38 +51,101 @@ export default function GraphVisualizer({
 
     return members.map((member, index) => {
       const angle = index * angleStep;
-      const x = cx + radius * Math.cos(angle) - 62.5; // Offset half of min-w 125
-      const y = cy + radius * Math.sin(angle) - 32;   // Offset half of height
+      const x = cx + radius * Math.cos(angle) - (65 * nodeScale); // Dynamic offset matching scaled width
+      const y = cy + radius * Math.sin(angle) - (32 * nodeScale); // Dynamic offset matching scaled height
 
       const balance = netBalances[member] || 0;
+      const spentTodayAmount = todaySpent[member] || 0;
+      const actualSpentAmount = actualSpentToday[member] || 0;
 
       return {
         id: member,
         position: { x, y },
         data: {
           label: (
-            <div className="flex flex-col items-center p-3 rounded-xl border border-zinc-700 bg-zinc-900 text-zinc-100 min-w-[125px] shadow-2xl backdrop-blur-md select-none hover:border-zinc-500 transition-colors">
-              <span className="font-bold text-xs tracking-wide">{member}</span>
+            <div 
+              className="flex flex-col items-center rounded-xl border border-zinc-700 bg-zinc-900 text-zinc-100 shadow-2xl backdrop-blur-md select-none hover:border-zinc-500 transition-colors"
+              style={{
+                minWidth: `${130 * nodeScale}px`,
+                padding: `${12 * nodeScale}px`,
+              }}
+            >
+              <span 
+                className="font-bold tracking-wide text-center"
+                style={{ fontSize: `${12 * nodeScale}px` }}
+              >
+                {member}
+              </span>
               {balance > 0.01 ? (
-                <span className="text-[9px] font-extrabold text-emerald-400 bg-emerald-500/20 px-2.5 py-0.5 rounded-full mt-2 border border-emerald-500/30">
+                <span 
+                  className="font-extrabold text-emerald-400 bg-emerald-500/20 rounded-full border border-emerald-500/30 text-center"
+                  style={{
+                    fontSize: `${9 * nodeScale}px`,
+                    paddingLeft: `${10 * nodeScale}px`,
+                    paddingRight: `${10 * nodeScale}px`,
+                    paddingTop: `${2 * nodeScale}px`,
+                    paddingBottom: `${2 * nodeScale}px`,
+                    marginTop: `${8 * nodeScale}px`
+                  }}
+                >
                   +₹{balance.toFixed(2)}
                 </span>
               ) : balance < -0.01 ? (
-                <span className="text-[9px] font-extrabold text-rose-400 bg-rose-500/20 px-2.5 py-0.5 rounded-full mt-2 border border-rose-500/30">
+                <span 
+                  className="font-extrabold text-rose-400 bg-rose-500/20 rounded-full border border-rose-500/30 text-center"
+                  style={{
+                    fontSize: `${9 * nodeScale}px`,
+                    paddingLeft: `${10 * nodeScale}px`,
+                    paddingRight: `${10 * nodeScale}px`,
+                    paddingTop: `${2 * nodeScale}px`,
+                    paddingBottom: `${2 * nodeScale}px`,
+                    marginTop: `${8 * nodeScale}px`
+                  }}
+                >
                   -₹{Math.abs(balance).toFixed(2)}
                 </span>
               ) : (
-                <span className="text-[9px] font-extrabold text-zinc-400 bg-zinc-800 px-2.5 py-0.5 rounded-full mt-2 border border-zinc-700">
+                <span 
+                  className="font-extrabold text-zinc-400 bg-zinc-800 rounded-full border border-zinc-700 text-center"
+                  style={{
+                    fontSize: `${9 * nodeScale}px`,
+                    paddingLeft: `${10 * nodeScale}px`,
+                    paddingRight: `${10 * nodeScale}px`,
+                    paddingTop: `${2 * nodeScale}px`,
+                    paddingBottom: `${2 * nodeScale}px`,
+                    marginTop: `${8 * nodeScale}px`
+                  }}
+                >
                   Settled
                 </span>
               )}
+              
+              {/* Daily spending tracking sub-panel */}
+              <div 
+                className="flex flex-col items-stretch w-full border-t border-zinc-800/80 px-0.5"
+                style={{
+                  marginTop: `${10 * nodeScale}px`,
+                  paddingTop: `${8 * nodeScale}px`,
+                  gap: `${2 * nodeScale}px`,
+                  fontSize: `${8.5 * nodeScale}px`
+                }}
+              >
+                <div className="flex justify-between gap-2">
+                  <span>Paid Today:</span>
+                  <span className="text-zinc-200 font-medium">₹{spentTodayAmount.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between gap-2">
+                  <span>Actual Spent:</span>
+                  <span className="text-white font-semibold">₹{actualSpentAmount.toFixed(2)}</span>
+                </div>
+              </div>
             </div>
           ),
         },
         style: { background: "transparent", border: "none", padding: 0 },
       };
     });
-  }, [members, netBalances]);
+  }, [members, netBalances, todaySpent, actualSpentToday, nodeScale]);
 
   // 2. Calculate Initial Edges based on state toggled
   const initialEdges = useMemo<Edge[]>(() => {
@@ -98,13 +171,15 @@ export default function GraphVisualizer({
       const rawDebts: { [key: string]: number } = {};
       transactions.forEach((t) => {
         const splitCount = t.splitAmong.length;
-        if (splitCount > 0) {
-          const share = t.amount / splitCount;
-          t.splitAmong.forEach((person) => {
-            if (person !== t.paidBy) {
-              const key = `${person}->${t.paidBy}`;
-              rawDebts[key] = (rawDebts[key] || 0) + share;
-            }
+        if (splitCount > 0 && t.paidBy && Array.isArray(t.paidBy)) {
+          t.paidBy.forEach((payer) => {
+            const payerShare = payer.amount / splitCount;
+            t.splitAmong.forEach((person) => {
+              if (person !== payer.member) {
+                const key = `${person}->${payer.member}`;
+                rawDebts[key] = (rawDebts[key] || 0) + payerShare;
+              }
+            });
           });
         }
       });
@@ -138,17 +213,45 @@ export default function GraphVisualizer({
 
   // Synchronize state when initial values change (due to prop updates)
   useEffect(() => {
-    setNodes(initialNodes);
+    setNodes((currentNodes) => {
+      if (currentNodes.length === 0) return initialNodes;
+      
+      return initialNodes.map((newNode) => {
+        const existingNode = currentNodes.find((n) => n.id === newNode.id);
+        // Keep the existing dragged position, but update the data/styling
+        if (existingNode) {
+          return { ...newNode, position: existingNode.position };
+        }
+        return newNode;
+      });
+    });
   }, [initialNodes, setNodes]);
 
   useEffect(() => {
     setEdges(initialEdges);
   }, [initialEdges, setEdges]);
 
+  // Trigger fitView whenever the fullscreen state changes to keep the graph centered
+  useEffect(() => {
+    if (reactFlowInstance.current) {
+      setTimeout(() => {
+        reactFlowInstance.current?.fitView({ padding: 0.25, duration: 250 });
+      }, 150);
+    }
+  }, [isFullscreen]);
+
   return (
     <div 
-      className="w-full border border-zinc-800 bg-zinc-950/80 rounded-xl overflow-hidden relative shadow-inner [&_.react-flow\_\_attribution]:hidden"
-      style={{ height: "550px", minHeight: "550px" }}
+      className={
+        isFullscreen 
+          ? "w-full flex-1 min-h-0 relative border border-zinc-800 bg-zinc-950/80 rounded-xl overflow-hidden [&_.react-flow\_\_attribution]:hidden"
+          : "w-full border border-zinc-800 bg-zinc-950/80 rounded-xl overflow-hidden relative shadow-inner [&_.react-flow\_\_attribution]:hidden"
+      }
+      style={
+        isFullscreen 
+          ? { flex: 1, minHeight: 0 } 
+          : { height: "550px", minHeight: "550px" }
+      }
     >
       <ReactFlow
         nodes={nodes}
@@ -163,6 +266,7 @@ export default function GraphVisualizer({
         nodesDraggable={true}
         style={{ width: "100%", height: "100%" }}
         onInit={(instance: ReactFlowInstance) => {
+          reactFlowInstance.current = instance;
           // Delayed fitView ensures that the browser layout pass is complete
           // and the container width/height are resolved properly.
           setTimeout(() => {

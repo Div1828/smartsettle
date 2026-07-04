@@ -2,7 +2,7 @@
 
 ### *Optimal Expense Sharing & Debt Visualizer*
 
-**SmartSettle** is a highly interactive, full-stack Next.js web application designed to track expenses within small groups (strictly capped at 5 members) and automatically simplify collective debt. Using a greedy graph-matching algorithm, it minimizes cash flows to resolve complex circular debts in the absolute fewest transactions possible.
+**SmartSettle** is a highly interactive, full-stack Next.js web application designed to track expenses within small groups (strictly capped at 10 members) and automatically simplify collective debt. Using a greedy graph-matching algorithm, it minimizes cash flows to resolve complex circular debts in the absolute fewest transactions possible.
 
 ---
 
@@ -18,7 +18,7 @@ Instead of displaying a boring list of balances, SmartSettle features an interac
 
 ## ⚡ Core Features
 
-1.  **Group Management:** Create expense groups (2 to 5 members) and dynamically manage members from the dashboard header.
+1.  **Group Management:** Create expense groups (2 to 10 members) and dynamically manage members from the dashboard header.
 2.  **The Ledger:** Log expenses with description, payer, amount, and custom participant selections (split shares are automatically calculated).
 3.  **Algorithmic Debt Simplification:** Implements a greedy cash flow minimization algorithm that pairs the largest debtor with the largest creditor to resolve balances iteratively in at most $N-1$ transactions.
 4.  **Recent Groups Dashboard:** A central landing hub showing recent groups, member counts, and expense activity.

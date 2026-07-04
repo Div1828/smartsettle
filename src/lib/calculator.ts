@@ -13,9 +13,19 @@ export function calculateSettlements(members: string[], transactions: ITransacti
 
   transactions.forEach(t => {
     const splitAmount = t.amount / t.splitAmong.length;
-    balances[t.paidBy] += t.amount; // They paid, so they are owed this amount
+    
+    // Add contributions from each payer
+    t.paidBy.forEach(contribution => {
+      if (balances[contribution.member] !== undefined) {
+        balances[contribution.member] += contribution.amount;
+      }
+    });
+    
+    // Subtract split shares
     t.splitAmong.forEach(person => {
-      balances[person] -= splitAmount; // Subtract their share of the expense
+      if (balances[person] !== undefined) {
+        balances[person] -= splitAmount;
+      }
     });
   });
 

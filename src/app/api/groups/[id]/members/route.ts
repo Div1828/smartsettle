@@ -36,10 +36,10 @@ export async function PATCH(
       );
     }
 
-    // Enforce strict limit of 5 members
-    if (group.members.length >= 5) {
+    // Enforce strict limit of 10 members
+    if (group.members.length >= 10) {
       return NextResponse.json(
-        { error: "Groups are strictly limited to a maximum of 5 members." },
+        { error: "Groups are strictly limited to a maximum of 10 members." },
         { status: 400 }
       );
     }

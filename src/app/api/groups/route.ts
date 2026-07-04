@@ -8,10 +8,10 @@ export async function POST(req: Request) {
     const body = await req.json();
     const { name, members } = body;
 
-    // Ensure we don't exceed the 5 member limit before hitting Mongoose
-    if (!members || members.length > 5) {
+    // Ensure we don't exceed the 10 member limit before hitting Mongoose
+    if (!members || members.length > 10) {
       return NextResponse.json(
-        { error: "A group can have a maximum of 5 members." }, 
+        { error: "A group can have a maximum of 10 members." }, 
         { status: 400 }
       );
     }

@@ -14,15 +14,17 @@ import {
   ChevronRight, 
   Sparkles,
   Info,
-  Layers
+  Layers,
+  Trash2
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
-import { ITransaction } from "@/models/Group";
+import { ITransaction, IPayer } from "@/models/Group";
 
-interface ClientTransaction extends ITransaction {
+interface ClientTransaction extends Omit<ITransaction, "paidBy"> {
   _id?: string;
+  paidBy: IPayer[];
 }
 
 interface ClientGroup {
@@ -44,11 +46,17 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
 
   // Form state
   const [description, setDescription] = useState("");
-  const [amount, setAmount] = useState("");
-  const [paidBy, setPaidBy] = useState("");
+  const [payerAmounts, setPayerAmounts] = useState<Record<string, string>>({});
   const [splitAmong, setSplitAmong] = useState<string[]>([]);
   const [formLoading, setFormLoading] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+
+  // Expanded transaction details state
+  const [expandedTxId, setExpandedTxId] = useState<string | null>(null);
+
+  const toggleExpandTransaction = (txId: string) => {
+    setExpandedTxId(expandedTxId === txId ? null : txId);
+  };
 
   // Add Member state
   const [isAddingMember, setIsAddingMember] = useState(false);
@@ -126,6 +134,39 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
     }
   };
 
+  const handleDeleteTransaction = async (txId: string) => {
+    const confirmed = window.confirm("Are you sure you want to delete this expense?");
+    if (!confirmed) return;
+
+    try {
+      const response = await fetch(`/api/groups/${groupId}/transactions/${txId}`, {
+        method: "DELETE",
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to delete transaction.");
+      }
+
+      // Update local state by filtering out the deleted transaction
+      if (group) {
+        setGroup({
+          ...group,
+          transactions: group.transactions.filter((tx) => tx._id !== txId),
+        });
+      }
+      
+      // Close expanded state if we deleted the currently expanded item
+      if (expandedTxId === txId) {
+        setExpandedTxId(null);
+      }
+    } catch (err: any) {
+      console.error("RAW SYSTEM ERROR:", err);
+      alert(err.message || "Failed to delete expense. Please try again.");
+    }
+  };
+
   // Fetch group details
   const fetchGroup = async () => {
     try {
@@ -140,10 +181,14 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
       setGroup(data);
       setError(null);
       
-      // Initialize form defaults once group details are fetched
+      // Initialize split checkboxes and payer contribution inputs
       if (data.members && data.members.length > 0) {
-        setPaidBy(data.members[0]);
         setSplitAmong(data.members); // Default all selected
+        const initialAmounts: Record<string, string> = {};
+        data.members.forEach((m: string) => {
+          initialAmounts[m] = "";
+        });
+        setPayerAmounts(initialAmounts);
       }
     } catch (err: any) {
       console.error("RAW SYSTEM ERROR:", err);
@@ -158,6 +203,21 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
       fetchGroup();
     }
   }, [groupId]);
+
+  // Synchronize payerAmounts dictionary when group members list updates
+  useEffect(() => {
+    if (group?.members) {
+      setPayerAmounts((prev) => {
+        const updated = { ...prev };
+        group.members.forEach((m) => {
+          if (updated[m] === undefined) {
+            updated[m] = "";
+          }
+        });
+        return updated;
+      });
+    }
+  }, [group?.members]);
 
   // Handle Split Among checkbox toggles
   const handleSplitCheckboxChange = (memberName: string) => {
@@ -182,6 +242,12 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
     }
   };
 
+  // Dynamically calculate total expense amount by summing up member contributions
+  const calculatedTotalAmount = Object.values(payerAmounts).reduce((sum, val) => {
+    const num = Number(val);
+    return sum + (isNaN(num) ? 0 : num);
+  }, 0);
+
   // Submit new expense
   const handleAddExpense = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -195,15 +261,18 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
       return;
     }
 
-    const numericAmount = parseFloat(amount);
-    if (isNaN(numericAmount) || numericAmount <= 0) {
-      setFormError("Please enter a valid amount greater than 0.");
+    const payersList = Object.entries(payerAmounts)
+      .map(([member, val]) => ({ member, amount: Number(val) }))
+      .filter((p) => p.amount > 0);
+
+    if (payersList.length === 0) {
+      setFormError("At least one member must pay an amount greater than zero.");
       setFormLoading(false);
       return;
     }
 
-    if (!paidBy) {
-      setFormError("Please select who paid.");
+    if (calculatedTotalAmount <= 0) {
+      setFormError("Total expense amount must be greater than zero.");
       setFormLoading(false);
       return;
     }
@@ -222,8 +291,8 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
         },
         body: JSON.stringify({
           description: description.trim(),
-          amount: numericAmount,
-          paidBy,
+          amount: calculatedTotalAmount,
+          paidBy: payersList,
           splitAmong,
         }),
       });
@@ -242,11 +311,16 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
         });
       }
 
-      // Reset form
+      // Reset form fields
       setDescription("");
-      setAmount("");
+      const clearedAmounts: Record<string, string> = {};
+      if (group?.members) {
+        group.members.forEach((m) => {
+          clearedAmounts[m] = "";
+        });
+      }
+      setPayerAmounts(clearedAmounts);
       if (group?.members.length) {
-        setPaidBy(group.members[0]);
         setSplitAmong(group.members);
       }
     } catch (err: any) {
@@ -257,6 +331,18 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
     }
   };
 
+  // Format multiple payers string for ledger view
+  const formatPayers = (paidBy: IPayer[]) => {
+    if (!paidBy || paidBy.length === 0) return "Paid by Nobody";
+    if (paidBy.length === 1) {
+      return `Paid by ${paidBy[0].member}`;
+    }
+    if (paidBy.length === 2) {
+      return `Paid by ${paidBy[0].member} (₹${paidBy[0].amount.toFixed(2)}), ${paidBy[1].member} (₹${paidBy[1].amount.toFixed(2)})`;
+    }
+    return "Paid by Multiple Payers";
+  };
+
   // Calculate stats
   const totalExpenses = group?.transactions.reduce((acc, tx) => acc + tx.amount, 0) || 0;
 
@@ -264,7 +350,7 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
     return (
       <div className="flex-1 w-full min-h-screen bg-zinc-950 text-zinc-50 flex flex-col justify-center items-center gap-4">
         <div className="size-8 border-4 border-white border-t-transparent rounded-full animate-spin" />
-        <p className="text-zinc-400 text-sm">Loading SmartSettle Ledger...</p>
+        <p className="text-zinc-350 text-sm font-medium">Loading SmartSettle Ledger...</p>
       </div>
     );
   }
@@ -276,7 +362,7 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
           <Info className="size-6" />
         </div>
         <h1 className="text-2xl font-bold text-white mb-2">Failed to Load Group</h1>
-        <p className="text-zinc-400 max-w-md mb-6">{error || "Group details could not be retrieved."}</p>
+        <p className="text-zinc-300 max-w-md mb-6">{error || "Group details could not be retrieved."}</p>
         <Button onClick={() => router.push("/")} className="bg-white text-zinc-950 hover:bg-zinc-200">
           Return Home
         </Button>
@@ -300,7 +386,7 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
               onClick={() => router.push("/")}
               variant="outline"
               size="icon"
-              className="border-zinc-800 bg-zinc-900/50 hover:bg-zinc-800/80 size-9 text-zinc-400 hover:text-white shrink-0"
+              className="border-zinc-800 bg-zinc-900/50 hover:bg-zinc-800/80 size-9 text-zinc-300 hover:text-white shrink-0"
               title="Back to Landing Page"
             >
               <ArrowLeft className="size-4" />
@@ -308,25 +394,25 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
             <div>
               <div className="flex items-center gap-2 flex-wrap">
                 <h1 className="text-2xl md:text-3xl font-bold text-white tracking-tight">{group.name}</h1>
-                <span className="text-[10px] uppercase font-bold tracking-widest px-2 py-0.5 rounded-full border border-zinc-800 bg-zinc-900 text-zinc-400">
+                <span className="text-[10px] uppercase font-bold tracking-widest px-2 py-0.5 rounded-full border border-zinc-800 bg-zinc-900 text-zinc-300">
                   {group.members.length} Members
                 </span>
               </div>
               <div className="flex flex-col sm:flex-row sm:items-center gap-2.5 mt-1">
-                <p className="text-zinc-500 text-xs md:text-sm">
+                <p className="text-zinc-400 text-xs md:text-sm">
                   Members: {group.members.join(", ")}
                 </p>
-                {group.members.length < 5 && !isAddingMember && (
+                {group.members.length < 10 && !isAddingMember && (
                   <button
                     onClick={() => setIsAddingMember(true)}
-                    className="text-[10px] text-zinc-400 hover:text-white font-semibold underline underline-offset-2 transition-all text-left self-start sm:self-auto cursor-pointer"
+                    className="text-[10px] text-zinc-300 hover:text-white font-semibold underline underline-offset-2 transition-all text-left self-start sm:self-auto cursor-pointer"
                   >
                     + Add Member
                   </button>
                 )}
               </div>
               
-              {isAddingMember && (
+              {isAddingMember && group.members.length < 10 && (
                 <form onSubmit={handleAddMember} className="flex items-center gap-2 mt-2 flex-wrap">
                   <Input
                     type="text"
@@ -336,7 +422,7 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
                       setNewMemberName(e.target.value);
                       setAddMemberError(null);
                     }}
-                    className="h-7 text-xs border-zinc-800 bg-zinc-900/60 focus:border-zinc-500 w-36 text-white placeholder-zinc-700 rounded-lg px-2.5"
+                    className="h-7 text-xs border-zinc-800 bg-zinc-900/60 focus:border-zinc-500 w-36 text-white placeholder-zinc-700 rounded-lg px-2.5 font-medium"
                     disabled={addMemberLoading}
                     autoFocus
                     required
@@ -358,7 +444,7 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
                       setNewMemberName("");
                       setAddMemberError(null);
                     }}
-                    className="text-zinc-500 hover:text-zinc-300 h-7 px-2 rounded-lg"
+                    className="text-zinc-400 hover:text-white h-7 px-2 rounded-lg"
                     disabled={addMemberLoading}
                   >
                     Cancel
@@ -406,7 +492,7 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
                   <IndianRupee className="size-5" />
                 </div>
                 <div>
-                  <p className="text-xs text-zinc-500 font-semibold uppercase tracking-wider">Total Expenses</p>
+                  <p className="text-xs text-zinc-400 font-semibold uppercase tracking-wider">Total Expenses</p>
                   <p className="text-xl font-bold text-white mt-0.5">₹{totalExpenses.toFixed(2)}</p>
                 </div>
               </Card>
@@ -415,58 +501,97 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
                   <Receipt className="size-5" />
                 </div>
                 <div>
-                  <p className="text-xs text-zinc-500 font-semibold uppercase tracking-wider">Transactions count</p>
+                  <p className="text-xs text-zinc-400 font-semibold uppercase tracking-wider">Transactions count</p>
                   <p className="text-xl font-bold text-white mt-0.5">{group.transactions.length}</p>
                 </div>
               </Card>
             </div>
 
-            {/* The Ledger section */}
+            {/* Ledger List Card */}
             <Card className="border-zinc-800 bg-zinc-900/40 shadow-xl shadow-black/40 backdrop-blur-md">
               <CardHeader className="border-b border-zinc-800/80 p-5">
-                <CardTitle className="text-lg font-bold text-white flex items-center gap-2">
-                  <Receipt className="size-4.5 text-zinc-400" />
+                <CardTitle className="text-base font-bold text-white flex items-center gap-2">
+                  <Receipt className="size-4.5 text-zinc-300" />
                   <span>The Ledger</span>
                 </CardTitle>
-                <CardDescription className="text-zinc-500 text-xs">
-                  A history of all expenses logged in this group.
+                <CardDescription className="text-zinc-400 text-xs">
+                  History of logged group expenses. Click any row to expand breakdowns.
                 </CardDescription>
               </CardHeader>
-
-              <CardContent className="p-0">
+              
+              <CardContent className="p-5">
                 {group.transactions.length === 0 ? (
-                  <div className="py-16 text-center flex flex-col items-center justify-center p-6">
-                    <Receipt className="size-10 text-zinc-700 mb-3" />
-                    <p className="text-sm text-zinc-400 font-medium">No expenses logged yet</p>
-                    <p className="text-xs text-zinc-600 mt-1 max-w-xs">Use the form on the right to log the first expense for this group.</p>
+                  <div className="py-16 text-center flex flex-col items-center justify-center">
+                    <div className="size-10 rounded-full bg-zinc-900 border border-zinc-850 flex items-center justify-center text-zinc-400 mb-3">
+                      <Receipt className="size-5" />
+                    </div>
+                    <p className="text-sm text-white font-medium">No expenses logged yet</p>
+                    <p className="text-xs text-zinc-300 mt-1 max-w-xs">Use the form on the right to log the first expense for this group.</p>
                   </div>
                 ) : (
                   <div className="divide-y divide-zinc-900/80 max-h-[460px] overflow-y-auto pr-1">
-                    {group.transactions.map((tx, idx) => (
-                      <div key={tx._id || idx} className="p-4 flex justify-between items-start hover:bg-zinc-900/20 transition-colors">
-                        <div className="flex gap-3">
-                          <div className="size-8 rounded-lg bg-zinc-900 border border-zinc-850 flex items-center justify-center text-zinc-400 mt-0.5">
-                            <User className="size-4" />
+                    {group.transactions.map((tx, idx) => {
+                      const isExpanded = expandedTxId === tx._id;
+                      return (
+                        <div key={tx._id || idx} className="border-b border-zinc-900/40 last:border-b-0">
+                          <div 
+                            onClick={() => tx._id && toggleExpandTransaction(tx._id)}
+                            className="p-4 flex justify-between items-start hover:bg-zinc-900/40 transition-colors cursor-pointer select-none"
+                          >
+                            <div className="flex gap-3">
+                              <div className="size-8 rounded-lg bg-zinc-900 border border-zinc-850 flex items-center justify-center text-zinc-300 mt-0.5">
+                                <User className="size-4" />
+                              </div>
+                              <div>
+                                <p className="text-sm font-semibold text-white">{tx.description}</p>
+                                <p className="text-xs text-zinc-350 mt-1">
+                                  <span className="font-semibold text-white">{formatPayers(tx.paidBy)}</span> &bull; Split among {tx.splitAmong.length} members
+                                </p>
+                                <p className="text-[10px] text-zinc-300 mt-1 flex items-center gap-1">
+                                  <Calendar className="size-3" />
+                                  {tx.createdAt ? new Date(tx.createdAt).toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" }) : "Recently"}
+                                </p>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-3 shrink-0">
+                              <div className="text-right">
+                                <p className="text-sm font-bold text-white">₹{tx.amount.toFixed(2)}</p>
+                                <p className="text-[10px] text-zinc-300 mt-1">
+                                  ₹{(tx.amount / tx.splitAmong.length).toFixed(2)} / person
+                                </p>
+                              </div>
+                              {tx._id && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleDeleteTransaction(tx._id!);
+                                  }}
+                                  className="text-zinc-400 hover:text-red-400 transition-colors p-1.5 rounded-lg hover:bg-zinc-900/60 cursor-pointer"
+                                  title="Delete Expense"
+                                >
+                                  <Trash2 className="size-3.5" />
+                                </button>
+                              )}
+                            </div>
                           </div>
-                          <div>
-                            <p className="text-sm font-semibold text-zinc-200">{tx.description}</p>
-                            <p className="text-xs text-zinc-500 mt-1">
-                              Paid by <span className="font-semibold text-zinc-300">{tx.paidBy}</span> &bull; Split among {tx.splitAmong.length} members
-                            </p>
-                            <p className="text-[10px] text-zinc-650 mt-1 flex items-center gap-1">
-                              <Calendar className="size-3" />
-                              {tx.createdAt ? new Date(tx.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "Recently"}
-                            </p>
-                          </div>
+                          
+                          {isExpanded && tx._id && (
+                            <div className="px-4 pb-4 pt-2 bg-zinc-950/40 border-t border-zinc-900/40 animate-fade-in space-y-2">
+                              <p className="text-[10px] uppercase font-bold tracking-wider text-zinc-400">Payer Contribution Breakdown</p>
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                                {tx.paidBy.map((payer, pidx) => (
+                                  <div key={pidx} className="flex justify-between items-center bg-zinc-900/50 border border-zinc-800 p-2 rounded-lg">
+                                    <span className="text-zinc-300 font-medium">{payer.member}</span>
+                                    <span className="text-white font-semibold">₹{payer.amount.toFixed(2)}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
                         </div>
-                        <div className="text-right">
-                          <p className="text-sm font-bold text-white">₹{tx.amount.toFixed(2)}</p>
-                          <p className="text-[10px] text-zinc-600 mt-1">
-                            ₹{(tx.amount / tx.splitAmong.length).toFixed(2)} / person
-                          </p>
-                        </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </CardContent>
@@ -479,11 +604,11 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
             <Card className="border-zinc-800 bg-zinc-900/40 shadow-xl shadow-black/40 backdrop-blur-md">
               <CardHeader className="border-b border-zinc-800/80 p-5">
                 <CardTitle className="text-lg font-bold text-white flex items-center gap-2">
-                  <Plus className="size-4.5 text-zinc-400" />
+                  <Plus className="size-4.5 text-zinc-300" />
                   <span>Add Expense</span>
                 </CardTitle>
-                <CardDescription className="text-zinc-500 text-xs">
-                  Log a new payment to split among group members.
+                <CardDescription className="text-zinc-400 text-xs">
+                  Log payments to split among group members.
                 </CardDescription>
               </CardHeader>
 
@@ -492,7 +617,7 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
                   
                   {/* Expense Description */}
                   <div className="space-y-1.5">
-                    <label htmlFor="description" className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
+                    <label htmlFor="description" className="text-xs font-semibold uppercase tracking-wider text-zinc-400">
                       Description
                     </label>
                     <Input
@@ -504,66 +629,52 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
                         setDescription(e.target.value);
                         setFormError(null);
                       }}
-                      className="border-zinc-800 bg-zinc-900/60 text-white placeholder-zinc-700 focus:border-zinc-400 focus:ring-1 focus:ring-zinc-400 h-9 px-3 text-sm transition-all"
+                      className="border-zinc-800 bg-zinc-900/60 text-white placeholder-zinc-650 focus:border-zinc-400 focus:ring-1 focus:ring-zinc-400 h-9 px-3 text-sm transition-all"
                       disabled={formLoading}
                       required
                     />
                   </div>
 
-                  {/* Expense Amount */}
-                  <div className="space-y-1.5">
-                    <label htmlFor="amount" className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
-                      Amount (₹)
+                  {/* Multi-Payer Contribution Inputs */}
+                  <div className="space-y-2">
+                    <label className="text-xs font-semibold uppercase tracking-wider text-zinc-400">
+                      Amount Paid By Members
                     </label>
-                    <div className="relative">
-                      <IndianRupee className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-zinc-650" />
-                      <Input
-                        id="amount"
-                        type="number"
-                        step="0.01"
-                        placeholder="0.00"
-                        value={amount}
-                        onChange={(e) => {
-                          setAmount(e.target.value);
-                          setFormError(null);
-                        }}
-                        className="border-zinc-800 bg-zinc-900/60 text-white placeholder-zinc-700 focus:border-zinc-400 focus:ring-1 focus:ring-zinc-400 h-9 pl-8 pr-3 text-sm transition-all"
-                        disabled={formLoading}
-                        required
-                      />
+                    <div className="space-y-2.5 border border-zinc-850 bg-zinc-900/30 rounded-lg p-3 max-h-[220px] overflow-y-auto">
+                      {group.members.map((member) => (
+                        <div key={member} className="flex justify-between items-center gap-4 py-0.5">
+                          <span className="text-xs font-semibold text-white truncate max-w-[150px]">{member}</span>
+                          <div className="relative w-36">
+                            <IndianRupee className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3 text-zinc-400" />
+                            <Input
+                              type="number"
+                              step="0.01"
+                              placeholder="0.00"
+                              value={payerAmounts[member] || ""}
+                              onChange={(e) => {
+                                setPayerAmounts({
+                                  ...payerAmounts,
+                                  [member]: e.target.value
+                                });
+                                setFormError(null);
+                              }}
+                              className="h-8 pl-7 pr-2 text-xs border-zinc-800 bg-zinc-900/60 text-white placeholder-zinc-650 focus:border-zinc-400 transition-all rounded-md"
+                              disabled={formLoading}
+                            />
+                          </div>
+                        </div>
+                      ))}
                     </div>
-                  </div>
-
-                  {/* Paid By dropdown */}
-                  <div className="space-y-1.5">
-                    <label htmlFor="paidBy" className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
-                      Paid By
-                    </label>
-                    <div className="relative">
-                      <select
-                        id="paidBy"
-                        value={paidBy}
-                        onChange={(e) => {
-                          setPaidBy(e.target.value);
-                          setFormError(null);
-                        }}
-                        className="w-full rounded-lg border border-zinc-800 bg-zinc-900/60 text-white placeholder-zinc-700 focus:border-zinc-400 focus:ring-1 focus:ring-zinc-400 h-9 px-3 text-sm transition-all outline-none appearance-none cursor-pointer"
-                        disabled={formLoading}
-                      >
-                        {group.members.map((member) => (
-                          <option key={member} value={member} className="bg-zinc-900 text-white">
-                            {member}
-                          </option>
-                        ))}
-                      </select>
-                      <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none border-l border-r border-t border-transparent border-t-zinc-400 size-0 border-x-4 border-t-4" />
+                    <div className="flex justify-between items-center px-1 pt-2 border-t border-zinc-900">
+                      <span className="text-xs font-bold uppercase tracking-wider text-zinc-400">Total Expense Amount</span>
+                      <span className="text-sm font-bold text-white">₹{calculatedTotalAmount.toFixed(2)}</span>
                     </div>
                   </div>
 
                   {/* Split Among checkboxes */}
                   <div className="space-y-2">
                     <div className="flex justify-between items-center">
-                      <label className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
+                      <label className="text-xs font-semibold uppercase tracking-wider text-zinc-400">
                         Split Among
                       </label>
                       <Button
@@ -571,7 +682,7 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
                         variant="ghost"
                         size="xs"
                         onClick={toggleSelectAllSplit}
-                        className="text-[10px] text-zinc-400 hover:text-white hover:bg-zinc-800/80 h-5 px-1.5 rounded"
+                        className="text-[10px] text-zinc-300 hover:text-white hover:bg-zinc-800/80 h-5 px-1.5 rounded"
                         disabled={formLoading}
                       >
                         {splitAmong.length === group.members.length ? "Deselect All" : "Select All"}
@@ -596,7 +707,7 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
                             }`}>
                               {isSelected && <Check className="size-3 stroke-[3]" />}
                             </div>
-                            <span className="font-medium">{member}</span>
+                            <span className="font-semibold text-white">{member}</span>
                           </button>
                         );
                       })}

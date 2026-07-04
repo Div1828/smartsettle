@@ -5,24 +5,25 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { 
   ArrowLeft, 
-  ArrowRight, 
   IndianRupee, 
   Sparkles, 
   CheckCircle,
   HelpCircle,
   Activity,
-  Users,
+  Info,
   TrendingDown,
-  Info
+  Maximize,
+  Minimize
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardAction } from "@/components/ui/card";
+import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { calculateSettlements, Settlement } from "@/lib/calculator";
-import { ITransaction } from "@/models/Group";
+import { ITransaction, IPayer } from "@/models/Group";
 import GraphVisualizer from "@/components/GraphVisualizer";
 
-interface ClientTransaction extends ITransaction {
+interface ClientTransaction extends Omit<ITransaction, "paidBy"> {
   _id?: string;
+  paidBy: IPayer[];
 }
 
 interface ClientGroup {
@@ -45,6 +46,10 @@ export default function SettlePage({ params }: { params: Promise<{ id: string }>
   const [netBalances, setNetBalances] = useState<{ [member: string]: number }>({});
   const [rawDebtsCount, setRawDebtsCount] = useState(0);
   const [showOptimized, setShowOptimized] = useState(true);
+  const [todaySpent, setTodaySpent] = useState<{ [member: string]: number }>({});
+  const [actualSpentToday, setActualSpentToday] = useState<{ [member: string]: number }>({});
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [nodeScale, setNodeScale] = useState<number>(1);
 
   useEffect(() => {
     const fetchGroupAndCalculate = async () => {
@@ -69,6 +74,17 @@ export default function SettlePage({ params }: { params: Promise<{ id: string }>
           balances[m] = 0;
         });
 
+        // Initialize todaySpent and actualSpentToday trackers
+        const todaySpentMap: { [member: string]: number } = {};
+        const actualSpentTodayMap: { [member: string]: number } = {};
+        data.members.forEach((m: string) => {
+          todaySpentMap[m] = 0;
+          actualSpentTodayMap[m] = 0;
+        });
+
+        const todayStart = new Date();
+        todayStart.setHours(0, 0, 0, 0);
+
         let rawDebts = 0;
         data.transactions.forEach((tx: ClientTransaction) => {
           const splitCount = tx.splitAmong.length;
@@ -76,22 +92,65 @@ export default function SettlePage({ params }: { params: Promise<{ id: string }>
             const share = tx.amount / splitCount;
             tx.splitAmong.forEach((member) => {
               balances[member] -= share;
-              // If someone else paid, it creates a raw direct peer-to-peer debt relation
-              if (member !== tx.paidBy) {
-                rawDebts++;
+            });
+
+            // Calculate actual spent today (consumed share)
+            if (tx.createdAt) {
+              const txDate = new Date(tx.createdAt);
+              if (txDate >= todayStart) {
+                tx.splitAmong.forEach((splitter) => {
+                  if (actualSpentTodayMap[splitter] !== undefined) {
+                    actualSpentTodayMap[splitter] += share;
+                  }
+                });
+              }
+            }
+          }
+          // Support multi-payer list
+          if (tx.paidBy && Array.isArray(tx.paidBy)) {
+            tx.paidBy.forEach((payer) => {
+              if (balances[payer.member] !== undefined) {
+                balances[payer.member] += payer.amount;
+              }
+              // Proportional Raw Debts logic
+              tx.splitAmong.forEach((splitter) => {
+                if (splitter !== payer.member) {
+                  rawDebts++;
+                }
+              });
+
+              // Calculate daily paid (contributed amount)
+              if (tx.createdAt) {
+                const txDate = new Date(tx.createdAt);
+                if (txDate >= todayStart) {
+                  if (todaySpentMap[payer.member] !== undefined) {
+                    todaySpentMap[payer.member] += payer.amount;
+                  }
+                }
               }
             });
           }
-          balances[tx.paidBy] += tx.amount;
         });
 
-        // Round balances
+        // Round balances to 2 decimal places
         Object.keys(balances).forEach((m) => {
           balances[m] = Math.round(balances[m] * 100) / 100;
         });
 
+        // Round todaySpent to 2 decimal places
+        Object.keys(todaySpentMap).forEach((m) => {
+          todaySpentMap[m] = Math.round(todaySpentMap[m] * 100) / 100;
+        });
+
+        // Round actualSpentToday to 2 decimal places
+        Object.keys(actualSpentTodayMap).forEach((m) => {
+          actualSpentTodayMap[m] = Math.round(actualSpentTodayMap[m] * 100) / 100;
+        });
+
         setNetBalances(balances);
         setRawDebtsCount(rawDebts);
+        setTodaySpent(todaySpentMap);
+        setActualSpentToday(actualSpentTodayMap);
         setError(null);
       } catch (err: any) {
         console.error("RAW SYSTEM ERROR:", err);
@@ -168,8 +227,8 @@ export default function SettlePage({ params }: { params: Promise<{ id: string }>
           </div>
         </div>
 
-        {/* Algorithm Efficiency Banner (Only show if there are settlements) */}
-        {settlements.length > 0 && (
+        {/* Algorithm Efficiency Banner (Only show if there are settlements and not in fullscreen mode) */}
+        {settlements.length > 0 && !isFullscreen && (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 bg-zinc-900/20 border border-zinc-850 rounded-xl p-5 backdrop-blur-sm relative overflow-hidden">
             <div className="absolute top-0 right-0 p-2 opacity-5">
               <Sparkles className="size-16" />
@@ -198,71 +257,79 @@ export default function SettlePage({ params }: { params: Promise<{ id: string }>
         {/* Core Split Screen Layout: Balances vs Settlements */}
         <div className="grid grid-cols-1 md:grid-cols-12 gap-8">
           
-          {/* Net Balances (The Math Behind the Scenes) */}
-          <div className="md:col-span-5 flex flex-col gap-6">
-            <Card className="border-zinc-800 bg-zinc-900/40 shadow-xl shadow-black/40 backdrop-blur-md">
-              <CardHeader className="border-b border-zinc-800/80 p-5">
-                <CardTitle className="text-base font-bold text-white flex items-center gap-2">
-                  <Activity className="size-4 text-zinc-400" />
-                  <span>Net Balances</span>
-                </CardTitle>
-                <CardDescription className="text-zinc-500 text-xs">
-                  How much each person has paid vs owes.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="p-5 space-y-4">
-                {Object.entries(netBalances).map(([member, balance]) => {
-                  const isDebtor = balance < -0.01;
-                  const isCreditor = balance > 0.01;
-                  return (
-                    <div key={member} className="flex justify-between items-center py-1.5 border-b border-zinc-900/40 last:border-b-0">
-                      <span className="text-sm font-semibold text-zinc-300">{member}</span>
-                      {isCreditor && (
-                        <span className="text-xs font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full">
-                          Owed +₹{balance.toFixed(2)}
-                        </span>
-                      )}
-                      {isDebtor && (
-                        <span className="text-xs font-bold text-rose-400 bg-rose-500/10 border border-rose-500/20 px-2 py-0.5 rounded-full">
-                          Owes -₹{Math.abs(balance).toFixed(2)}
-                        </span>
-                      )}
-                      {!isCreditor && !isDebtor && (
-                        <span className="text-xs font-bold text-zinc-500 bg-zinc-900 border border-zinc-800 px-2 py-0.5 rounded-full">
-                          Settled
-                        </span>
-                      )}
-                    </div>
-                  );
-                })}
-              </CardContent>
-            </Card>
+          {/* Net Balances (The Math Behind the Scenes) - Hidden if visualizer is fullscreen */}
+          {!isFullscreen && (
+            <div className="md:col-span-5 flex flex-col gap-6">
+              <Card className="border-zinc-800 bg-zinc-900/40 shadow-xl shadow-black/40 backdrop-blur-md">
+                <CardHeader className="border-b border-zinc-800/80 p-5">
+                  <CardTitle className="text-base font-bold text-white flex items-center gap-2">
+                    <Activity className="size-4 text-zinc-400" />
+                    <span>Net Balances</span>
+                  </CardTitle>
+                  <CardDescription className="text-zinc-500 text-xs">
+                    How much each person has paid vs owes.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="p-5 space-y-4">
+                  {Object.entries(netBalances).map(([member, balance]) => {
+                    const isDebtor = balance < -0.01;
+                    const isCreditor = balance > 0.01;
+                    return (
+                      <div key={member} className="flex justify-between items-center py-1.5 border-b border-zinc-900/40 last:border-b-0">
+                        <span className="text-sm font-semibold text-zinc-300">{member}</span>
+                        {isCreditor && (
+                          <span className="text-xs font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full">
+                            Owed +₹{balance.toFixed(2)}
+                          </span>
+                        )}
+                        {isDebtor && (
+                          <span className="text-xs font-bold text-rose-400 bg-rose-500/10 border border-rose-500/20 px-2 py-0.5 rounded-full">
+                            Owes -₹{Math.abs(balance).toFixed(2)}
+                          </span>
+                        )}
+                        {!isCreditor && !isDebtor && (
+                          <span className="text-xs font-bold text-zinc-500 bg-zinc-900 border border-zinc-800 px-2 py-0.5 rounded-full">
+                            Settled
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </CardContent>
+              </Card>
 
-            <Card className="border-zinc-800 bg-zinc-900/40 shadow-xl shadow-black/40 backdrop-blur-md">
-              <CardHeader className="p-5 pb-3">
-                <CardTitle className="text-sm font-bold text-white flex items-center gap-2">
-                  <HelpCircle className="size-4 text-zinc-500" />
-                  <span>How does this work?</span>
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="p-5 pt-0 text-xs text-zinc-500 leading-relaxed space-y-2">
-                <p>
-                  1. <strong>Net Balances:</strong> We calculate each person's net balance by subtracting their total share of group expenses from what they actually paid.
-                </p>
-                <p>
-                  2. <strong>Greedy Matching:</strong> The engine pairs the person with the largest net debt with the person who is owed the largest credit.
-                </p>
-                <p>
-                  3. <strong>Minimization:</strong> A single transaction settles one of the two parties, and the process repeats. This reduces the number of payments to at most <i>N - 1</i> transfers.
-                </p>
-              </CardContent>
-            </Card>
-          </div>
+              <Card className="border-zinc-800 bg-zinc-900/40 shadow-xl shadow-black/40 backdrop-blur-md">
+                <CardHeader className="p-5 pb-3">
+                  <CardTitle className="text-sm font-bold text-white flex items-center gap-2">
+                    <HelpCircle className="size-4 text-zinc-500" />
+                    <span>How does this work?</span>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="p-5 pt-0 text-xs text-zinc-500 leading-relaxed space-y-2">
+                  <p>
+                    1. <strong>Net Balances:</strong> We calculate each person's net balance by subtracting their total share of group expenses from what they actually paid.
+                  </p>
+                  <p>
+                    2. <strong>Greedy Matching:</strong> The engine pairs the person with the largest net debt with the person who is owed the largest credit.
+                  </p>
+                  <p>
+                    3. <strong>Minimization:</strong> A single transaction settles one of the two parties, and the process repeats. This reduces the number of payments to at most <i>N - 1</i> transfers.
+                  </p>
+                </CardContent>
+              </Card>
+            </div>
+          )}
 
           {/* Optimized Settlement Transfers */}
-          <div className="md:col-span-7">
-            <Card className="border-zinc-800 bg-zinc-900/40 shadow-xl shadow-black/40 backdrop-blur-md h-full">
-              <CardHeader className="border-b border-zinc-800/80 p-5 flex flex-row items-center justify-between gap-4">
+          <div className={isFullscreen ? "col-span-12 w-full h-full" : "md:col-span-7"}>
+            <Card 
+              className={
+                isFullscreen 
+                  ? "fixed inset-0 z-50 w-full h-full bg-zinc-950 border-none rounded-none flex flex-col p-4 md:p-8" 
+                  : "border-zinc-800 bg-zinc-900/40 shadow-xl shadow-black/40 backdrop-blur-md h-full"
+              }
+            >
+              <CardHeader className="border-b border-zinc-800/80 p-5 flex flex-row items-center justify-between gap-4 shrink-0">
                 <div className="flex flex-col gap-1">
                   <CardTitle className="text-base font-bold text-white flex items-center gap-2">
                     <Sparkles className="size-4 text-zinc-400" />
@@ -272,7 +339,7 @@ export default function SettlePage({ params }: { params: Promise<{ id: string }>
                     {showOptimized ? "Optimized minimal payments flow." : "Messy, unoptimized raw peer-to-peer debts."}
                   </CardDescription>
                 </div>
-                <CardAction>
+                <div className="flex items-center gap-3">
                   <div className="flex bg-zinc-900 border border-zinc-800 p-0.5 rounded-lg text-xs">
                     <button
                       type="button"
@@ -297,12 +364,38 @@ export default function SettlePage({ params }: { params: Promise<{ id: string }>
                       Optimized
                     </button>
                   </div>
-                </CardAction>
+
+                  {/* Node Scaling Range Control */}
+                  <div className="flex items-center gap-2 border border-zinc-800 bg-zinc-900/50 px-2.5 py-1 rounded-lg">
+                    <span className="text-[10px] uppercase font-bold text-zinc-400 select-none">Node Size</span>
+                    <input
+                      type="range"
+                      min="0.5"
+                      max="1.5"
+                      step="0.1"
+                      value={nodeScale}
+                      onChange={(e) => setNodeScale(parseFloat(e.target.value))}
+                      className="w-16 h-1 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-white"
+                      title="Adjust node size"
+                    />
+                  </div>
+
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    onClick={() => setIsFullscreen(!isFullscreen)}
+                    className="border-zinc-800 bg-zinc-900/50 hover:bg-zinc-800/80 size-8 text-zinc-400 hover:text-white shrink-0 cursor-pointer"
+                    title={isFullscreen ? "Exit Fullscreen" : "Fullscreen View"}
+                  >
+                    {isFullscreen ? <Minimize className="size-4" /> : <Maximize className="size-4" />}
+                  </Button>
+                </div>
               </CardHeader>
 
-              <CardContent className="p-5">
+              <CardContent className={isFullscreen ? "p-5 flex-1 flex flex-col relative w-full h-full min-h-0" : "p-5"}>
                 {settlements.length === 0 ? (
-                  <div className="py-20 text-center flex flex-col items-center justify-center">
+                  <div className="py-20 text-center flex flex-col items-center justify-center flex-1">
                     <div className="size-12 rounded-full bg-emerald-950/20 border border-emerald-900/30 flex items-center justify-center text-emerald-400 mb-4 animate-bounce">
                       <CheckCircle className="size-6" />
                     </div>
@@ -312,17 +405,21 @@ export default function SettlePage({ params }: { params: Promise<{ id: string }>
                     </p>
                   </div>
                 ) : (
-                  <div className="space-y-4">
+                  <div className={isFullscreen ? "flex-1 flex flex-col gap-4 h-full min-h-0 relative" : "space-y-4"}>
                     <GraphVisualizer
                       members={group.members}
-                      transactions={group.transactions}
+                      transactions={group.transactions as any}
                       settlements={settlements}
                       netBalances={netBalances}
                       showOptimized={showOptimized}
+                      todaySpent={todaySpent}
+                      actualSpentToday={actualSpentToday}
+                      isFullscreen={isFullscreen}
+                      nodeScale={nodeScale}
                     />
                     
                     {/* Compact visual legend */}
-                    <div className="flex justify-between items-center text-[10px] text-zinc-500 border-t border-zinc-900 pt-3 px-1">
+                    <div className="flex justify-between items-center text-[10px] text-zinc-500 border-t border-zinc-900 pt-3 px-1 shrink-0">
                       <span className="flex items-center gap-1.5">
                         <span className="size-2 rounded-full bg-rose-500" />
                         <span>Debtor (Owes money)</span>
@@ -331,7 +428,7 @@ export default function SettlePage({ params }: { params: Promise<{ id: string }>
                         <span className="size-2 rounded-full bg-emerald-500" />
                         <span>Creditor (Owed money)</span>
                       </span>
-                      <span className="text-zinc-600 font-mono">
+                      <span className="text-zinc-650 font-mono">
                         Double-click / Drag nodes to organize
                       </span>
                     </div>

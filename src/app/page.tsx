@@ -41,9 +41,9 @@ export default function Home() {
     fetchRecentGroups();
   }, []);
 
-  // Add a member input field (max 5)
+  // Add a member input field (max 10)
   const addMemberField = () => {
-    if (members.length < 5) {
+    if (members.length < 10) {
       setMembers([...members, ""]);
       setError(null);
     }
@@ -177,7 +177,7 @@ export default function Home() {
                 <Users className="size-5" />
               </div>
               <div>
-                <h3 className="font-semibold text-zinc-200 text-sm">Up to 5 Members</h3>
+                <h3 className="font-semibold text-zinc-200 text-sm">Up to 10 Members</h3>
                 <p className="text-xs text-zinc-500 mt-1">Perfect for roommates, trips, dinners, and small group tasks.</p>
               </div>
             </div>
@@ -206,7 +206,7 @@ export default function Home() {
                 <span>Create New Group</span>
               </CardTitle>
               <CardDescription className="text-zinc-400 mt-1">
-                Enter a group name and add up to 5 members to start splitting.
+                Enter a group name and add up to 10 members to start splitting.
               </CardDescription>
             </CardHeader>
             
@@ -237,9 +237,9 @@ export default function Home() {
                 <div className="space-y-3">
                   <div className="flex justify-between items-center">
                     <label className="text-xs font-semibold uppercase tracking-wider text-zinc-400">
-                      Group Members ({members.length}/5)
+                      Group Members ({members.length}/10)
                     </label>
-                    {members.length < 5 && (
+                    {members.length < 10 && (
                       <Button
                         type="button"
                         variant="ghost"
